@@ -85,19 +85,26 @@ intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} re
     );
 
     const geminiData = await geminiResp.json();
+    console.log('GEMINI_STATUS:', geminiResp.status);
+    console.log('GEMINI_RAW:', JSON.stringify(geminiData).slice(0, 500));
+
     if (geminiData.error) return res.status(500).json({ error: geminiData.error.message });
 
     const raw = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('GEMINI_TEXT:', raw.slice(0, 300));
+
     const clean = raw.replace(/```json|```/g, '').trim();
 
     try {
       const parsed = JSON.parse(clean);
       return res.status(200).json(parsed);
     } catch(e) {
-      return res.status(500).json({ error: 'JSON parse error', raw: clean.slice(0, 400) });
+      console.log('PARSE_ERROR:', e.message, 'RAW:', clean.slice(0, 200));
+      return res.status(500).json({ error: 'JSON parse error: ' + e.message, raw: clean.slice(0, 400) });
     }
 
   } catch(e) {
+    console.log('FETCH_ERROR:', e.message);
     return res.status(500).json({ error: e.message });
   }
 }
