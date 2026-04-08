@@ -77,7 +77,7 @@ intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} re
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 2000,
+            maxOutputTokens: 8000,
             responseMimeType: 'application/json'
           }
         })
