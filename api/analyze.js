@@ -22,11 +22,18 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).end();
 
-  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || 'unknown';
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || 'unknown';
   if (isRateLimited(ip)) return res.status(429).json({ error: 'Too many requests. Wait a minute.' });
 
-  const { results, keyword, gl, hl, vertical } = req.body;
-  if (!results || !Array.isArray(results) || results.length === 0) return res.status(400).json({ error: 'Invalid results' });
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch(e) { return res.status(400).json({ error: 'Invalid JSON body' }); }
+  }
+
+  const { results, keyword, gl, hl, vertical } = body || {};
+  if (!results || !Array.isArray(results) || results.length === 0) {
+    return res.status(400).json({ error: 'Missing results array' });
+  }
 
   const lines = results.map((r, i) =>
     `${i+1}. title: "${String(r.title||'').slice(0,150)}" | url: ${String(r.link||'').slice(0,200)} | snippet: "${String(r.snippet||'').slice(0,150)}"`
@@ -44,7 +51,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido, sin markdown, sin texto extra:
   "keyword": "keyword analizada",
   "dominant_intent": "informational|transactional|commercial|navigational",
   "intent_distribution": {"informational":0,"transactional":0,"commercial":0,"navigational":0},
-  "summary": "2-3 frases sobre el carácter de la SERP: qué tipo de contenido domina y qué señala sobre la intención del usuario",
+  "summary": "2-3 frases sobre el carácter de la SERP y qué señala sobre la intención del usuario",
   "pain_point": "Descripción del punto de dolor o necesidad principal que el usuario tiene cuando hace esta búsqueda",
   "results": [
     {
@@ -60,25 +67,31 @@ Devuelve ÚNICAMENTE un objeto JSON válido, sin markdown, sin texto extra:
 
 intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} resultados en el mismo orden.`;
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 2000 }
-    })
-  });
-
-  const data = await response.json();
-  if (data.error) return res.status(500).json({ error: data.error.message });
-
-  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const clean = raw.replace(/```json|```/g, '').trim();
-
   try {
+    const geminiResp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 2000 }
+        })
+      }
+    );
+
+    const geminiData = await geminiResp.json();
+
+    if (geminiData.error) {
+      return res.status(500).json({ error: geminiData.error.message });
+    }
+
+    const raw = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const clean = raw.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
-    res.status(200).json(parsed);
+    return res.status(200).json(parsed);
+
   } catch(e) {
-    res.status(500).json({ error: 'Failed to parse Gemini response', raw: clean.slice(0, 300) });
+    return res.status(500).json({ error: e.message });
   }
 }
