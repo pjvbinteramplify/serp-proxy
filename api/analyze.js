@@ -46,26 +46,26 @@ Keyword: "${String(keyword||'').slice(0,100)}"
 Resultados:
 ${lines}
 
-Devuelve ÚNICAMENTE un objeto JSON válido, sin markdown, sin texto extra:
+Devuelve un objeto JSON con esta estructura exacta:
 {
   "keyword": "keyword analizada",
-  "dominant_intent": "informational|transactional|commercial|navigational",
+  "dominant_intent": "informational",
   "intent_distribution": {"informational":0,"transactional":0,"commercial":0,"navigational":0},
-  "summary": "2-3 frases sobre el carácter de la SERP y qué señala sobre la intención del usuario",
-  "pain_point": "Descripción del punto de dolor o necesidad principal que el usuario tiene cuando hace esta búsqueda",
+  "summary": "2-3 frases sobre el caracter de la SERP",
+  "pain_point": "Punto de dolor principal del usuario al hacer esta busqueda",
   "results": [
     {
       "position": 1,
-      "url": "url exacta del resultado",
-      "title": "title exacto del resultado",
-      "cluster": "home|categoría|ficha-producto|artículo-blog|comparativa|guía|herramienta|directorio|review|landing|foro|wiki|vídeo|news",
+      "url": "url exacta",
+      "title": "title exacto",
+      "cluster": "home|categoria|ficha-producto|articulo-blog|comparativa|guia|herramienta|directorio|review|landing|foro|wiki|video|news",
       "intent": "informational|transactional|commercial|navigational",
-      "intent_detail": "qué necesidad o punto de dolor cubre esta URL específica para el usuario"
+      "intent_detail": "que necesidad cubre esta URL para el usuario"
     }
   ]
 }
 
-intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} resultados en el mismo orden.`;
+intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} resultados en orden.`;
 
   try {
     const geminiResp = await fetch(
@@ -75,21 +75,27 @@ intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} re
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 2000 }
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 2000,
+            responseMimeType: 'application/json'
+          }
         })
       }
     );
 
     const geminiData = await geminiResp.json();
-
-    if (geminiData.error) {
-      return res.status(500).json({ error: geminiData.error.message });
-    }
+    if (geminiData.error) return res.status(500).json({ error: geminiData.error.message });
 
     const raw = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean = raw.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    return res.status(200).json(parsed);
+
+    try {
+      const parsed = JSON.parse(clean);
+      return res.status(200).json(parsed);
+    } catch(e) {
+      return res.status(500).json({ error: 'JSON parse error', raw: clean.slice(0, 400) });
+    }
 
   } catch(e) {
     return res.status(500).json({ error: e.message });
