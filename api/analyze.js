@@ -15,6 +15,35 @@ function isRateLimited(ip) {
   return false;
 }
 
+const MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash'
+];
+
+async function callGemini(prompt, apiKey) {
+  for (const model of MODELS) {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 4000, responseMimeType: 'application/json' }
+        })
+      }
+    );
+    const data = await resp.json();
+    if (data.error?.code === 429 || data.error?.code === 503) continue;
+    if (data.error) throw new Error(data.error.message);
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return raw.replace(/```json|```/g, '').trim();
+  }
+  throw new Error('All models quota exceeded. Try again later.');
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -55,41 +84,19 @@ JSON exacto (sin texto extra):
   "summary": "2 frases sobre el caracter de la SERP",
   "pain_point": "Necesidad principal del usuario",
   "url_profile": "Que clusters dominan. Ej: 6 fichas de producto, 3 comparativas, 1 home",
-  "fit_signal": "Si hay URL de usuario: encaja o hay desajuste con el patron dominante. Si no hay URL: null",
+  "fit_signal": "Si hay URL de usuario: encaja o hay desajuste con el patron dominante. Si no hay URL escribe null",
   "results": [{"position":1,"url":"url","title":"title","cluster":"home|categoria|ficha-producto|articulo-blog|comparativa|guia|herramienta|directorio|review|landing|foro|wiki|video|news","intent":"informational|transactional|commercial|navigational","intent_detail":"necesidad que cubre"}]
 }
 intent_distribution suma 10. ${results.length} resultados en orden.`;
 
   try {
-    const geminiResp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 4000,
-            responseMimeType: 'application/json'
-          }
-        })
-      }
-    );
-
-    const geminiData = await geminiResp.json();
-    if (geminiData.error) return res.status(500).json({ error: geminiData.error.message });
-
-    const raw = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const clean = raw.replace(/```json|```/g, '').trim();
-
+    const clean = await callGemini(prompt, process.env.GEMINI_KEY);
     try {
       const parsed = JSON.parse(clean);
       return res.status(200).json(parsed);
     } catch(e) {
       return res.status(500).json({ error: 'JSON parse error: ' + e.message, raw: clean.slice(0, 400) });
     }
-
   } catch(e) {
     return res.status(500).json({ error: e.message });
   }
