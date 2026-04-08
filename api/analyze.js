@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     try { body = JSON.parse(body); } catch(e) { return res.status(400).json({ error: 'Invalid JSON body' }); }
   }
 
-  const { results, keyword, gl, hl, vertical } = body || {};
+  const { results, keyword, gl, hl, vertical, userUrl } = body || {};
   if (!results || !Array.isArray(results) || results.length === 0) {
     return res.status(400).json({ error: 'Missing results array' });
   }
@@ -39,9 +39,11 @@ export default async function handler(req, res) {
     `${i+1}. title: "${String(r.title||'').slice(0,150)}" | url: ${String(r.link||'').slice(0,200)} | snippet: "${String(r.snippet||'').slice(0,150)}"`
   ).join('\n');
 
+  const userUrlLine = userUrl ? `\nURL del usuario a evaluar: ${userUrl}` : '';
+
   const prompt = `Eres un experto en SEO y search intent. Analiza estos resultados reales de Google.
 Contexto: gl=${gl||'es'}, hl=${hl||'es'}${vertical ? ', vertical: '+vertical : ''}
-Keyword: "${String(keyword||'').slice(0,100)}"
+Keyword: "${String(keyword||'').slice(0,100)}"${userUrlLine}
 
 Resultados:
 ${lines}
@@ -49,18 +51,20 @@ ${lines}
 Devuelve un objeto JSON con esta estructura exacta:
 {
   "keyword": "keyword analizada",
-  "dominant_intent": "informational",
+  "dominant_intent": "informational|transactional|commercial|navigational",
   "intent_distribution": {"informational":0,"transactional":0,"commercial":0,"navigational":0},
-  "summary": "2-3 frases sobre el caracter de la SERP",
-  "pain_point": "Punto de dolor principal del usuario al hacer esta busqueda",
+  "summary": "2-3 frases sobre el caracter de la SERP y que senala sobre la intencion real del usuario",
+  "pain_point": "Punto de dolor o necesidad principal que tiene el usuario cuando hace esta busqueda",
+  "url_profile": "Describe que tipos de URLs dominan la SERP. Ej: 7 de 10 son fichas de producto, 2 comparativas y 1 home. Indica si Google premia paginas profundas o generales.",
+  "fit_signal": "Si se proporciono URL del usuario analiza si el tipo de pagina encaja con el patron dominante de la SERP. Si hay desajuste explica que tipo de pagina deberia ser. Si no se proporciono URL escribe null.",
   "results": [
     {
       "position": 1,
-      "url": "url exacta",
-      "title": "title exacto",
+      "url": "url exacta del resultado",
+      "title": "title exacto del resultado",
       "cluster": "home|categoria|ficha-producto|articulo-blog|comparativa|guia|herramienta|directorio|review|landing|foro|wiki|video|news",
       "intent": "informational|transactional|commercial|navigational",
-      "intent_detail": "que necesidad cubre esta URL para el usuario"
+      "intent_detail": "que necesidad o punto de dolor cubre esta URL especifica para el usuario"
     }
   ]
 }
@@ -85,26 +89,19 @@ intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} re
     );
 
     const geminiData = await geminiResp.json();
-    console.log('GEMINI_STATUS:', geminiResp.status);
-    console.log('GEMINI_RAW:', JSON.stringify(geminiData).slice(0, 500));
-
     if (geminiData.error) return res.status(500).json({ error: geminiData.error.message });
 
     const raw = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    console.log('GEMINI_TEXT:', raw.slice(0, 300));
-
     const clean = raw.replace(/```json|```/g, '').trim();
 
     try {
       const parsed = JSON.parse(clean);
       return res.status(200).json(parsed);
     } catch(e) {
-      console.log('PARSE_ERROR:', e.message, 'RAW:', clean.slice(0, 200));
       return res.status(500).json({ error: 'JSON parse error: ' + e.message, raw: clean.slice(0, 400) });
     }
 
   } catch(e) {
-    console.log('FETCH_ERROR:', e.message);
     return res.status(500).json({ error: e.message });
   }
 }
