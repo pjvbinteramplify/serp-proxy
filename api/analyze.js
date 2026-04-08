@@ -3,7 +3,7 @@ const rateLimitMap = new Map();
 function isRateLimited(ip) {
   const now = Date.now();
   const windowMs = 60 * 1000;
-  const maxRequests = 10;
+  const maxRequests = 15;
   const entry = rateLimitMap.get(ip) || { count: 0, start: now };
   if (now - entry.start > windowMs) {
     rateLimitMap.set(ip, { count: 1, start: now });
@@ -36,40 +36,29 @@ export default async function handler(req, res) {
   }
 
   const lines = results.map((r, i) =>
-    `${i+1}. title: "${String(r.title||'').slice(0,150)}" | url: ${String(r.link||'').slice(0,200)} | snippet: "${String(r.snippet||'').slice(0,150)}"`
+    `${i+1}. title: "${String(r.title||'').slice(0,120)}" | url: ${String(r.link||'').slice(0,180)} | snippet: "${String(r.snippet||'').slice(0,100)}"`
   ).join('\n');
 
-  const userUrlLine = userUrl ? `\nURL del usuario a evaluar: ${userUrl}` : '';
+  const userUrlLine = userUrl ? `\nURL del usuario: ${userUrl}` : '';
 
-  const prompt = `Eres un experto en SEO y search intent. Analiza estos resultados reales de Google.
-Contexto: gl=${gl||'es'}, hl=${hl||'es'}${vertical ? ', vertical: '+vertical : ''}
+  const prompt = `Experto SEO. Analiza estos resultados reales de Google.
+gl=${gl||'es'}, hl=${hl||'es'}${vertical?', '+vertical:''}
 Keyword: "${String(keyword||'').slice(0,100)}"${userUrlLine}
 
-Resultados:
 ${lines}
 
-Devuelve un objeto JSON con esta estructura exacta:
+JSON exacto (sin texto extra):
 {
-  "keyword": "keyword analizada",
+  "keyword": "keyword",
   "dominant_intent": "informational|transactional|commercial|navigational",
   "intent_distribution": {"informational":0,"transactional":0,"commercial":0,"navigational":0},
-  "summary": "2-3 frases sobre el caracter de la SERP y que senala sobre la intencion real del usuario",
-  "pain_point": "Punto de dolor o necesidad principal que tiene el usuario cuando hace esta busqueda",
-  "url_profile": "Describe que tipos de URLs dominan la SERP. Ej: 7 de 10 son fichas de producto, 2 comparativas y 1 home. Indica si Google premia paginas profundas o generales.",
-  "fit_signal": "Si se proporciono URL del usuario analiza si el tipo de pagina encaja con el patron dominante de la SERP. Si hay desajuste explica que tipo de pagina deberia ser. Si no se proporciono URL escribe null.",
-  "results": [
-    {
-      "position": 1,
-      "url": "url exacta del resultado",
-      "title": "title exacto del resultado",
-      "cluster": "home|categoria|ficha-producto|articulo-blog|comparativa|guia|herramienta|directorio|review|landing|foro|wiki|video|news",
-      "intent": "informational|transactional|commercial|navigational",
-      "intent_detail": "que necesidad o punto de dolor cubre esta URL especifica para el usuario"
-    }
-  ]
+  "summary": "2 frases sobre el caracter de la SERP",
+  "pain_point": "Necesidad principal del usuario",
+  "url_profile": "Que clusters dominan. Ej: 6 fichas de producto, 3 comparativas, 1 home",
+  "fit_signal": "Si hay URL de usuario: encaja o hay desajuste con el patron dominante. Si no hay URL: null",
+  "results": [{"position":1,"url":"url","title":"title","cluster":"home|categoria|ficha-producto|articulo-blog|comparativa|guia|herramienta|directorio|review|landing|foro|wiki|video|news","intent":"informational|transactional|commercial|navigational","intent_detail":"necesidad que cubre"}]
 }
-
-intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} resultados en orden.`;
+intent_distribution suma 10. ${results.length} resultados en orden.`;
 
   try {
     const geminiResp = await fetch(
@@ -83,7 +72,8 @@ intent_distribution debe sumar exactamente 10. Devuelve los ${results.length} re
             temperature: 0.1,
             maxOutputTokens: 8000,
             responseMimeType: 'application/json'
-          }
+          },
+          thinkingConfig: { thinkingBudget: 0 }
         })
       }
     );
