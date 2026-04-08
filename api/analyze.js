@@ -70,10 +70,9 @@ intent_distribution suma 10. ${results.length} resultados en orden.`;
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 8000,
+            maxOutputTokens: 4000,
             responseMimeType: 'application/json'
-          },
-          thinkingConfig: { thinkingBudget: 0 }
+          }
         })
       }
     );
