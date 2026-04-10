@@ -85,7 +85,7 @@ export default async function handler(req, res) {
 - H2: ${meta.h2 || '(no disponible)'}`
     : `Metadatos: no se pudieron obtener (página bloqueó el acceso)`;
 
-  const prompt = `Eres un experto en SEO. Determina la keyword principal que esta URL debería rankear en Google.
+  const prompt = `Eres un experto en SEO. Determina la keyword principal que esta URL debería rankear en Google según su intención de búsqueda y el punto de dolor principal que intenta cubrir.
 
 URL: ${url}
 Dominio: ${parsedUrl.domain || ''}
@@ -99,8 +99,8 @@ INSTRUCCIONES:
 - Combina dominio + path + metadatos para entender el contexto completo
 - La keyword debe ser lo que un usuario real escribiría en Google para llegar a esta página
 - Usa el idioma correcto para el mercado indicado
-- Si es ecommerce, incluye modificador transaccional (kaufen, comprar, buy...)
-- No uses el slug literal — interpreta la intención real
+- Si es ecommerce o al intención de búsqueda lo sugiere, incluye modificador transaccional (kaufen, comprar, buy...)
+- No uses el slug literal — interpreta la intención real del usuario que la página cubre
 
 Responde SOLO con JSON:
 {
