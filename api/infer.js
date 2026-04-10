@@ -5,6 +5,13 @@ const MODELS = [
   'gemini-2.5-flash'
 ];
 
+function extractJSON(text) {
+  const clean = text.replace(/```json|```/g, '').trim();
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (match) return match[0];
+  return clean;
+}
+
 async function callGemini(prompt, apiKey) {
   for (const model of MODELS) {
     const resp = await fetch(
@@ -14,7 +21,7 @@ async function callGemini(prompt, apiKey) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 200, responseMimeType: 'application/json' }
+          generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
         })
       }
     );
@@ -22,7 +29,7 @@ async function callGemini(prompt, apiKey) {
     if (data.error?.code === 429 || data.error?.code === 503) continue;
     if (data.error) throw new Error(data.error.message);
     const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    return raw.replace(/```json|```/g, '').trim();
+    return extractJSON(raw);
   }
   throw new Error('All models quota exceeded. Try again later.');
 }
@@ -30,10 +37,7 @@ async function callGemini(prompt, apiKey) {
 async function fetchPageMeta(url) {
   try {
     const resp = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; SEO-Analyzer/1.0)',
-        'Accept': 'text/html'
-      },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEO-Analyzer/1.0)', 'Accept': 'text/html' },
       redirect: 'follow',
       signal: AbortSignal.timeout(6000)
     });
@@ -43,12 +47,9 @@ async function fetchPageMeta(url) {
     const desc = (html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,300})["']/i)||
                   html.match(/<meta[^>]+content=["']([^"']{1,300})["'][^>]+name=["']description["']/i)||[])[1]?.trim() || '';
     const h1 = (html.match(/<h1[^>]*>([^<]{1,150})<\/h1>/i)||[])[1]?.replace(/<[^>]+>/g,'').trim() || '';
-    const h2 = (html.match(/<h2[^>]*>([^<]{1,150})<\/h2>/i)||[])[1]?.replace(/<[^>]+>/g,'').trim() || '';
-    // Also grab breadcrumbs and og:title as additional signals
     const ogTitle = (html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']{1,200})["']/i)||
                      html.match(/<meta[^>]+content=["']([^"']{1,200})["'][^>]+property=["']og:title["']/i)||[])[1]?.trim() || '';
-    const breadcrumb = [...html.matchAll(/<[^>]+(?:breadcrumb|crumb)[^>]*>([^<]{2,100})<\//gi)].map(m=>m[1].trim()).filter(Boolean).slice(0,5).join(' > ');
-    return { title, desc, h1, h2, ogTitle, breadcrumb };
+    return { title, desc, h1, ogTitle };
   } catch(e) {
     return null;
   }
@@ -85,12 +86,10 @@ export default async function handler(req, res) {
 - Title: ${meta.title || '(vacío)'}
 - OG Title: ${meta.ogTitle || '(vacío)'}
 - Meta description: ${meta.desc || '(vacío)'}
-- H1: ${meta.h1 || '(vacío)'}
-- H2: ${meta.h2 || '(vacío)'}
-- Breadcrumb: ${meta.breadcrumb || '(vacío)'}`
+- H1: ${meta.h1 || '(vacío)'}`
     : `Metadatos: no accesibles`;
 
-  const prompt = `Eres un experto en SEO. Determina la keyword principal que esta URL debería rankear en Google según su intención de búsqueda y el punto de dolor principal que intenta cubrir.
+  const prompt = `Eres un experto en SEO. Determina la keyword principal que esta URL debería rankear en Google.
 
 URL: ${url}
 Dominio: ${parsedUrl.domain || ''}
@@ -104,26 +103,24 @@ INSTRUCCIONES:
 - Combina dominio + path + metadatos para entender el contexto completo
 - La keyword debe ser lo que un usuario real escribiría en Google para llegar a esta página
 - Usa el idioma correcto para el mercado indicado
-- Si es ecommerce o la intención de búsqueda lo sugiere, incluye modificador transaccional (kaufen, comprar, buy...)
-- No uses el slug literal — interpreta la intención real del usuario que la página cubre
-- IMPORTANTE: si el title o H1 es muy corto o ambiguo (ej: solo "Large" o "Mini"), combínalo con el dominio y el path para construir una keyword con sentido completo
+- Si es ecommerce o la intención lo sugiere, incluye modificador transaccional (kaufen, comprar, buy...)
+- Si el title o H1 es muy corto o ambiguo (ej: solo "Large" o "Mini"), combínalo con el dominio y el path para construir una keyword con sentido completo — por ejemplo si el dominio es snushof.ch y el path es /snus/mini, la keyword debe incluir "snus mini" como mínimo
 
-Responde SOLO con JSON:
+Responde SOLO con este JSON, sin texto antes ni después:
 {
   "keyword": "keyword principal",
-  "reasoning": "1 frase explicando la inferencia",
-  "meta_used": ${meta ? 'true' : 'false'},
-  "meta_raw": {
-    "title": ${JSON.stringify(meta?.title || '')},
-    "h1": ${JSON.stringify(meta?.h1 || '')},
-    "desc": ${JSON.stringify(meta?.desc?.slice(0,100) || '')}
-  }
+  "reasoning": "1 frase",
+  "meta_used": true
 }`;
 
   try {
     const clean = await callGemini(prompt, process.env.GEMINI_KEY);
-    const parsed = JSON.parse(clean);
-    return res.status(200).json(parsed);
+    try {
+      const parsed = JSON.parse(clean);
+      return res.status(200).json(parsed);
+    } catch(e) {
+      return res.status(500).json({ error: 'JSON parse error: ' + e.message, raw: clean.slice(0, 200) });
+    }
   } catch(e) {
     return res.status(500).json({ error: e.message });
   }
